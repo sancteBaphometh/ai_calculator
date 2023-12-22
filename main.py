@@ -6,9 +6,9 @@ import requests
 import io
 import os
 
-from PIL import Image, ImageFilter
+from PIL import Image
 from imutils.contours import sort_contours
-from aiogram import Bot, Dispatcher, types, F, Router
+from aiogram import Bot, Dispatcher, types, Router
 from aiogram.types import Message
 from aiogram.filters import Command
 from aiogram.enums.parse_mode import ParseMode
@@ -37,35 +37,42 @@ async def main():
     # starting bot
     await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
 
+'''Initial handler'''
 @router.message(Command('start'))
 async def start_handler(msg: Message):
     await msg.answer('Hello! This bot can solve simple mathematic examples. Just write it on paper and send here!')
 
+'''This handler gets an image and calls test_pipline
+    method to solve a mathimatic example'''
 @router.message()
 async def get_photo(msg: types.Message):
     # getting file id
-    file_id = msg.photo[-1].file_id
-    # getting image by that id on telegram servers
-    resp = requests.get(URI_INFO + file_id)
-    # getting path to that image on servers
-    img_path = resp.json()['result']['file_path']
-    # downloading it
-    img = requests.get(URI+img_path)
-    # openning image and converting it so we could read it
-    img = Image.open(io.BytesIO(img.content))
-    # making directory for images and saving image
-    if not os.path.exists('static'):
-       os.mkdir('static')
-    img.save('static/image.png', format='PNG')
-    # loading image to model
-    try:
-        solution = test_pipeline('static/image.png')
-        await msg.answer(f'Solution to your example {solution[0]} is {solution[1]}')
-    except:
-       await msg.answer(f'An error occured while detecting symbols, try another image')
-    # deleting image
-    os.remove('static/image.png')
+    if msg.photo:
+        file_id = msg.photo[-1].file_id
+        # getting image by that id on telegram servers
+        resp = requests.get(URI_INFO + file_id)
+        # getting path to that image on servers
+        img_path = resp.json()['result']['file_path']
+        # downloading it
+        img = requests.get(URI+img_path)
+        # openning image and converting it so we could read it
+        img = Image.open(io.BytesIO(img.content))
+        # making directory for images and saving image
+        if not os.path.exists('static'):
+            os.mkdir('static')
+        img.save('static/image.png', format='PNG')
+        # loading image to model
+        try:
+            solution = test_pipeline('static/image.png')
+            await msg.answer(f'Solution to your example {solution[0]} is {solution[1]:.3f}')
+        except:
+            await msg.answer(f'An error occured while detecting symbols, try another image')
+        # deleting image
+        os.remove('static/image.png')
+    else:
+        await msg.answer('Send an image of your mathematical example')
 
+'''This is a prediction method to detect symbols and solve examples'''
 def test_pipeline(image_path):
     # a list for detected symbols
     chars = []
@@ -119,25 +126,23 @@ def test_pipeline(image_path):
             # drawing bounding boxes and predicted label over image
             cv2.rectangle(img, (x, y), (x+w, y+h), (0, 0, 255), 2)
             cv2.putText(img, label, (x-5, y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255))
-
+    
     # changing labels to operators and calculating result
     expression = ''
-
     for char in chars:
-      if char == 'add':
-        char = '+'
-      elif char == 'sub':
-        char = '-'
-      elif char == 'div':
-        char = '/'
-      elif char == 'mul':
-        char = '*'
+        if char == 'add':
+            char = '+'
+        elif char == 'sub':
+            char = '-'
+        elif char == 'div':
+            char = '/'
+        elif char == 'mul':
+            char = '*'
 
-      expression += char
+        expression += char
 
-    answer = [expression, eval(expression)]
-
-    return answer
+    # returning detected expression and solving result
+    return [expression, eval(expression)]
 
 if __name__ == '__main__':
     asyncio.run(main())
